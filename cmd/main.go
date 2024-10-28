@@ -11,6 +11,46 @@ import (
 
 const timeout = 5
 
+// getChangedSecrets return changed secrets
+func getChangedSecrets(prevSecrets, newSecrets []kubecaso.SecretsData) []kubecaso.SecretsData {
+	var changedSecrets []kubecaso.SecretsData
+	secretMap := make(map[string]string)
+
+	// Create old secrets map
+	for _, secret := range prevSecrets {
+		secretMap[secret.SecretName] = secret.SecretVersion
+	}
+
+	// Compare secrets versions
+	for _, secret := range newSecrets {
+		if prevVersion, ok := secretMap[secret.SecretName]; !ok || prevVersion != secret.SecretVersion {
+			changedSecrets = append(changedSecrets, secret)
+		}
+	}
+
+	return changedSecrets
+}
+
+// getChangedConfigMaps return changed configmaps
+func getChangedConfigMaps(prevConfigMaps, newConfigMaps []kubecaso.ConfigMapsData) []kubecaso.ConfigMapsData {
+	var changedConfigMaps []kubecaso.ConfigMapsData
+	configMapMap := make(map[string]string)
+
+	// Create old configmap map
+	for _, configMap := range prevConfigMaps {
+		configMapMap[configMap.ConfigMapName] = configMap.ConfigMapVersion
+	}
+
+	// Compare configmap map versions
+	for _, configMap := range newConfigMaps {
+		if prevVersion, ok := configMapMap[configMap.ConfigMapName]; !ok || prevVersion != configMap.ConfigMapVersion {
+			changedConfigMaps = append(changedConfigMaps, configMap)
+		}
+	}
+
+	return changedConfigMaps
+}
+
 func main() {
 	// Init kubecaso client
 	kc, err := kubecaso.NewKubeCasoClient("etc/config.yaml")
@@ -48,7 +88,7 @@ func main() {
 			configMaps = cmaps
 		}()
 
-		//  Run goroutine secrets
+		// Run goroutine secrets
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -66,30 +106,41 @@ func main() {
 
 		// Error handle
 		for err := range errorChan {
-			log.Fatal().Err(err).Msg("tba")
+			log.Fatal().Err(err).Msg("Error occurred")
 		}
 
 		if len(prevConfigMaps) == 0 && len(prevSecrets) == 0 {
-			log.Info().Msg("initialize state")
 			prevConfigMaps = configMaps
 			prevSecrets = secrets
-			log.Info().Msg("initialize state done")
 		}
 
-		// Check if configmap change
+		// Delete pod if configmap changed
 		if !reflect.DeepEqual(configMaps, prevConfigMaps) {
-			log.Info().Msg("configmap was change")
-			log.Info().Msg("implement configmap logic stub") // TODO: delete pod logic implement
+			log.Info().Msg("ConfigMap was changed")
+			changedConfigMaps := getChangedConfigMaps(prevConfigMaps, configMaps)
+
+			for _, data := range changedConfigMaps {
+				if err := kc.Cli.PodDelete(data.Namespace, data.Pod); err != nil {
+					continue
+				}
+				log.Info().Msgf("Deleted Pod %s in namespace %s due to ConfigMap change", data.Pod, data.Namespace)
+			}
 			prevConfigMaps = configMaps
 		}
 
-		// Check if secrets change
+		// Delete pod if secret changed
 		if !reflect.DeepEqual(secrets, prevSecrets) {
-			log.Info().Msg("secret was change")
-			log.Info().Msg("implement secret logic stub") // TODO: delete pod logic implement
+			log.Info().Msg("Secret was changed")
+			changedSecrets := getChangedSecrets(prevSecrets, secrets)
+
+			for _, data := range changedSecrets {
+				if err := kc.Cli.PodDelete(data.Namespace, data.Pod); err != nil {
+					continue
+				}
+				log.Info().Msgf("Deleted Pod %s in namespace %s due to Secret change", data.Pod, data.Namespace)
+			}
 			prevSecrets = secrets
 		}
-		log.Info().Any("configmaps old", prevConfigMaps).Any("configmaps new", configMaps).Msg("watch")
-		log.Info().Any("secrets old", prevSecrets).Any("secrets new", secrets).Msg("watch")
+		log.Info().Msg("watch")
 	}
 }
