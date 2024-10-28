@@ -1,0 +1,3 @@
+watch:
+  any: false
+  label: kubecaso.io=enabled

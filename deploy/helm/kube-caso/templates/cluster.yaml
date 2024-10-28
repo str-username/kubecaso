@@ -1,0 +1,8 @@
+{{- if .Values.global.local }}
+kind: {{ .Values.cluster.kind }}
+apiVersion: {{ .Values.cluster.apiVersion}}
+nodes:
+  {{- with .Values.cluster.nodes }}
+  {{- toYaml . | nindent 2 }}
+  {{- end }}
+{{- end }}
